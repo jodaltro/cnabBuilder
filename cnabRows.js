@@ -1,26 +1,53 @@
-'use strict';
-import path from 'path'
-import { readFile } from 'fs/promises'
-import { fileURLToPath } from 'url';
+"use strict";
+import { readFile } from "fs/promises";
+import { createReadStream } from "fs";
 
-import yargs from 'yargs'
-import chalk from 'chalk'
+import { createInterface } from "readline";
+
+import yargs from "yargs";
+import chalk from "chalk";
+import { getFullPath } from "./cnabUtils.js";
 
 const optionsYargs = yargs(process.argv.slice(2))
-  .usage('Uso: $0 [options]')
-  .option("f", { alias: "from", describe: "posição inicial de pesquisa da linha do Cnab", type: "number", demandOption: true })
-  .option("t", { alias: "to", describe: "posição final de pesquisa da linha do Cnab", type: "number", demandOption: true })
-  .option("s", { alias: "segmento", describe: "tipo de segmento", type: "string", demandOption: true })
-  .example('$0 -f 21 -t 34 -s p', 'lista a linha e campo que from e to do cnab')
-  .argv;
+  .usage("Uso: $0 [options]")
+  .option("f", {
+    alias: "from",
+    describe: "posição inicial de pesquisa da linha do Cnab",
+    type: "number",
+    demandOption: true,
+  })
+  .option("t", {
+    alias: "to",
+    describe: "posição final de pesquisa da linha do Cnab",
+    type: "number",
+    demandOption: true,
+  })
+  .option("s", {
+    alias: "segmento",
+    describe: "tipo de segmento",
+    type: "string",
+    demandOption: true,
+  })
+  .option("p", {
+    alias: "path",
+    describe: "caminho do arquivo Cnab",
+    type: "string",
+  })
+  .option("fs", {
+    alias: "fullSegmento",
+    describe: "segmento específicos",
+    type: "string",
+  })
+  .example(
+    "$0 -f 21 -t 34 -s p",
+    "lista a linha e campo que from e to do cnab"
+  ).argv;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const file = path.resolve(`${__dirname}/cnabExample.rem`)
+const { from, to, segmento, fullSegmento } = optionsYargs;
 
-const { from, to, segmento } = optionsYargs
+const file = getFullPath(optionsYargs.path);
 
-const sliceArrayPosition = (arr, ...positions) => [...arr].slice(...positions)
+console.log("Caminho do Arquivo CNAB: ", file);
 
 const messageLog = (segmento, segmentoType, from, to) => `
 ----- Cnab linha ${segmentoType} -----
@@ -32,42 +59,68 @@ posição to: ${chalk.inverse.bgBlack(to)}
 item isolado: ${chalk.inverse.bgBlack(segmento.substring(from - 1, to))}
 
 item dentro da linha P: 
-  ${segmento.substring(0, from)}${chalk.inverse.bgBlack(segmento.substring(from - 1, to))}${segmento.substring(to)}
+  ${segmento.substring(0, from)}${chalk.inverse.bgBlack(
+  segmento.substring(from - 1, to)
+)}${segmento.substring(to)}
 
 ----- FIM ------
-`
+`;
 
-const log = console.log
+const log = console.log;
 
-console.time('leitura Async')
+console.time("leitura Async");
 
-readFile(file, 'utf8')
-  .then(file => {
-    const cnabArray = file.split('\n')
+const fileStream = createInterface({
+  input: createReadStream(file),
+  output: process.stdout,
+  terminal: false,
+});
 
-    const cnabHeader = sliceArrayPosition(cnabArray, 0, 2)
+let lineIndex = 1;
+let isFound = false;
 
-    const [cnabBodySegmentoP, cnabBodySegmentoQ, cnabBodySegmentoR] = sliceArrayPosition(cnabArray, 2, -2)
+fileStream.on("line", (line) => {
+  try {
+    isFound = findOnLine(line, lineIndex, segmento, from, to);
+  } catch (error) {
+    console.log("🚀 ~ file: cnabRows.js ~ line 76 ~ error", error);
+  }
 
-    const cnabTail = sliceArrayPosition(cnabArray, -2)
+  if (isFound) {
+    log(messageLog(line, segmento, from, to));
 
-    if (segmento === 'p') {
-      log(messageLog(cnabBodySegmentoP, 'P', from, to))
-      return
-    }
+    fileStream.close();
+    fileStream.removeAllListeners();
+    return;
+  }
 
-    if (segmento === 'q') {
-      log(messageLog(cnabBodySegmentoQ, 'Q', from, to))
-      return
-    }
+  lineIndex++;
+});
 
-    if (segmento === 'r') {
-      log(messageLog(cnabBodySegmentoR, 'R', from, to))
-      return
-    }
+fileStream.on("close", () => {
+  console.timeEnd("leitura Async");
+});
 
-  })
-  .catch(error => {
-    console.log("🚀 ~ file: cnabRows.js ~ line 76 ~ error", error)
-  })
-console.timeEnd('leitura Async')
+function findOnLine(line, lineIndex, segmento) {
+
+  return checkBySegmento(lineIndex, segmento);
+
+}
+
+function checkBySegmento(lineIndex, segmento) {
+  if (lineIndex == 3 && segmento === "p") {
+    return true
+  }
+
+  if (lineIndex == 4 && segmento === "q") {
+    return true
+  }
+
+  if (lineIndex == 5 && segmento === "r") {
+    return true
+  }
+
+
+  return false
+}
+
